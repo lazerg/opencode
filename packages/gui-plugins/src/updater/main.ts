@@ -13,14 +13,21 @@ const setup: Plugin.MainSetup = async (ctx) => {
   const build = ctx.app
   const lifecycle = builtin.lifecycle
   // electron-updater reads its feed from app-update.yml. Distro packages that update the app themselves (such as the
-  // AUR's opencode-desktop-bin) delete it, and every check would then fail.
-  const enabled = build.packaged && existsSync(join(process.resourcesPath, "app-update.yml"))
+  // AUR's opencode-desktop-bin) delete it, and every check would then fail. The Flathub build keeps the file, but
+  // the .deb it would download can't be installed inside the sandbox.
+  const flatpak = !!process.env.FLATPAK_ID
+  const enabled = build.packaged && !flatpak && existsSync(join(process.resourcesPath, "app-update.yml"))
   // Holds no resources, so it needs no cleanup.
   const context = logContext(ctx.log.write)
   const runPromise = Effect.runPromiseWith(context)
   const runFork = Effect.runForkWith(context)
 
-  if (build.packaged && !enabled) runFork(Effect.logInfo("auto updater disabled, app-update.yml is missing"))
+  if (build.packaged && !enabled)
+    runFork(
+      Effect.logInfo(
+        flatpak ? "auto updater disabled, running as a Flatpak" : "auto updater disabled, app-update.yml is missing",
+      ),
+    )
 
   // The update main staged for the next start; stored before in the updater's settings file.
   const ready = builtin.storage.store("ready", {
