@@ -793,6 +793,44 @@ describe("GithubCopilotPlugin", () => {
     }),
   )
 
+  it.effect("adds Auto when Copilot flags the pool with auto instead of auto_discount", () =>
+    Effect.gen(function* () {
+      const state = { listed: false }
+      const remote = (id: string, extra: Record<string, unknown> = {}) => ({
+        model_picker_enabled: false,
+        id,
+        name: id,
+        version: id,
+        supported_endpoints: ["/responses"],
+        capabilities: {
+          family: id,
+          limits: { max_prompt_tokens: 128_000, max_output_tokens: 64_000 },
+          supports: { tool_calls: true },
+        },
+        ...extra,
+      })
+      const api = HttpClient.make((request) =>
+        Effect.gen(function* () {
+          if (!request.url.endsWith("/models"))
+            return HttpClientResponse.fromWeb(request, new Response(null, { status: 404 }))
+          state.listed = true
+          return HttpClientResponse.fromWeb(
+            request,
+            Response.json({ data: [remote("free-auto", { auto: true }), remote("other")] }),
+          )
+        }),
+      )
+      yield* connect({ apiEndpoint: "https://copilot.test" })
+      yield* addPlugin().pipe(Effect.provideService(HttpClient.HttpClient, api))
+      const models = yield* Model.Service
+      yield* advance(() => state.listed)
+      yield* drain
+      expect(
+        (yield* models.available()).filter((model) => model.providerID === Provider.ID.githubCopilot).map((m) => m.id),
+      ).toEqual([Model.ID.make("auto")])
+    }),
+  )
+
   it.effect("disables gpt-5-chat-latest before Copilot language selection", () =>
     Effect.gen(function* () {
       const providers = yield* Provider.Service
